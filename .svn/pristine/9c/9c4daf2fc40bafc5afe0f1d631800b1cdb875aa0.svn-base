@@ -1,0 +1,7 @@
+
+oaauthen_cookie_name=oa_token
+oaauthen_url=https://oajk.3g.fang.com/platform/app/login/OAAuthAct.do?method=verifyTokenPc&user=songqiong&pwd=g5i1u8n4d
+oauser_operate_url=http://home.www2.soufun.com/isso/isso.php
+oa_des_key=isso_key
+
+oa_getInfo_url=https://login.3g.fang.com/platform/issoInfoQueryInertface.do?method=getIdInfo&user=mgr_passport&pwd=mGr32p506P879t

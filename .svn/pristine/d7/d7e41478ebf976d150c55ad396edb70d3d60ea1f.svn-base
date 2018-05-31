@@ -1,0 +1,329 @@
+/**
+ * File：HttpClient.java
+ * Package：com.fang.common.web
+ * Author：jin
+ * Date：2017年3月31日 下午3:54:06
+ * Copyright (C) 2017-2017 房天下-版权所有
+ */
+package com.fang.common.network;
+
+import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.io.OutputStreamWriter;
+import java.net.HttpURLConnection;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.util.Map;
+import java.util.zip.DeflaterInputStream;
+import java.util.zip.GZIPInputStream;
+
+import javax.servlet.http.HttpServletRequest;
+
+import com.fang.common.enums.HttpRequestMethod;
+import com.fang.common.utils.StringUtils;
+
+/**
+ * <p>
+ * Description: HttpClient
+ * </p>
+ *
+ * @author jinshilei
+ *         2017年3月31日
+ * @version 1.0
+ *
+ */
+public class HttpClientUtils {
+
+  /**
+   * 默认连接超时时间(毫秒)
+   */
+  private static int connectTimeout = 3000;
+
+  /**
+   * 默认读取超时时间(无限制)
+   */
+  private static int readTimeout = 0;
+
+  /**
+   * 默认编码
+   */
+  private static String defaultCharset = "UTF-8";
+
+  /**
+   *
+   * http方式调用接口(默认编码格式:UTF-8，默认连接超时时间：3秒，get方式)
+   *
+   * @param url
+   *        访问的链接
+   * @return 返回值
+   * @throws Exception
+   *         异常
+   */
+  public static String requestUrl(String url) throws Exception {
+    return requestUrl(url, connectTimeout, readTimeout, defaultCharset, HttpRequestMethod.GET, null);
+  }
+
+  /**
+   *
+   * http方式调用接口(get方式)
+   *
+   * @param url
+   *        访问的链接
+   * @param connectTimiout
+   *        超时时间(毫秒)
+   * @param charset
+   *        编码
+   * @return 返回值
+   * @throws Exception
+   *         异常
+   */
+  public static String requestUrl(String url, int connectTimiout, String charset) throws Exception {
+    return requestUrl(url, connectTimeout, readTimeout, charset, HttpRequestMethod.GET, null);
+  }
+
+  /**
+   *
+   * http方式调用接口
+   *
+   * @param url
+   *        请求的url
+   * @param connectTimeout
+   *        连接的超时时间(毫秒),0为不限制时间
+   * @param readTimeout
+   *        读取响应的超时时间(毫秒),0为不限制时间
+   * @param charset
+   *        编码
+   * @param httpRequestMethod
+   *        请求方式
+   * @param postParameter
+   *        post请求的key-value值
+   * @return 返回值
+   * @throws Exception
+   *         异常
+   */
+  public static String requestUrl(String url, int connectTimeout, int readTimeout, String charset,
+                                  HttpRequestMethod httpRequestMethod,
+                                  Map<String, String> postParameter) throws Exception {
+    HttpURLConnection connection = null;
+    String result = null;
+    BufferedReader reader = null;
+    StringBuffer sBuffer = null;
+    try {
+      connection = getHttpURLConnection(url, connectTimeout, readTimeout, charset,
+          httpRequestMethod, postParameter);
+      String contentEncoding = connection.getContentEncoding();
+      if (contentEncoding != null && contentEncoding.contains("gzip")) {
+        result = gzipUnCompress(connection.getInputStream(), charset);
+      } else if (contentEncoding != null && contentEncoding.contains("deflate")) {
+        result = deflateUnCompress(connection.getInputStream(), charset);
+      } else {
+        reader = new BufferedReader(new InputStreamReader(connection.getInputStream(), charset));
+        sBuffer = new StringBuffer();
+        while ((result = reader.readLine()) != null) {
+          sBuffer.append(result);
+        }
+        result = sBuffer.toString();
+      }
+    } catch (IOException e) {
+      e.printStackTrace();
+    } finally {
+      if (connection != null) {
+        connection.disconnect();
+      }
+      if (reader != null) {
+        reader.close();
+      }
+    }
+    return result;
+  }
+
+  /**
+   * 根据web请求获取ip
+   *
+   * @param request
+   *        请求
+   * @return 返回值
+   */
+  public static String getIp(HttpServletRequest request) {
+    if (request == null) {
+      return "";
+    }
+    String ip = request.getHeader("X-Forwarded-For");
+    if (StringUtils.isEmpty(ip) || ip.equals("unknown")) {
+      ip = request.getHeader("X-Real-Ip");
+      if (StringUtils.isEmpty(ip) || ip.equals("unknown")) {
+        ip = request.getRemoteAddr();
+      }
+    }
+    if (!StringUtils.isEmpty(ip) && ip.contains(",")) {
+      String[] ips = ip.split(",");
+      if (ips != null && ips.length > 0) {
+        ip = ips[0];
+      }
+    }
+    if (StringUtils.isEmpty(ip)) {
+      return "";
+    }
+    return ip;
+  }
+
+  /**
+   *
+   * 获取http请求对象
+   *
+   * @param urlPath
+   *        请求的url
+   * @param connectTimeout
+   *        连接的超时时间(毫秒),0为不限制时间
+   * @param readTimeout
+   *        读取响应的超时时间(毫秒),0为不限制时间
+   * @param charset
+   *        编码
+   * @param httpRequestMethod
+   *        请求方式
+   * @param postParameter
+   *        post请求的key-value值
+   * @return 返回值
+   * @throws IOException
+   *         异常
+   */
+  private static HttpURLConnection getHttpURLConnection(String urlPath, int connectTimeout,
+                                                        int readTimeout, String charset,
+                                                        HttpRequestMethod httpRequestMethod,
+                                                        Map<String, String> postParameter)
+      throws IOException {
+    HttpURLConnection connection = null;
+    OutputStreamWriter writer = null;
+    try {
+      URL url = new URL(urlPath);
+      // Proxy proxy = new Proxy(Proxy.Type.HTTP, new InetSocketAddress(
+      // InetAddress.getByAddress(new byte[] {(byte) 124, (byte) 251, (byte) 50, (byte) 108}), 80));
+      // connection = (HttpURLConnection) url.openConnection(proxy);
+      connection = (HttpURLConnection) url.openConnection();
+      if (connectTimeout > 0) {
+        connection.setConnectTimeout(connectTimeout);
+      }
+      if (readTimeout > 0) {
+        connection.setReadTimeout(readTimeout);
+      }
+      connection.setRequestProperty("charset", charset);
+      connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
+      connection.setRequestMethod(httpRequestMethod.toString());
+      connection.setUseCaches(false);
+      // 支持gzip的响应流读取
+      connection.setRequestProperty("Accept-Encoding", "gzip,deflate");
+      if (httpRequestMethod.equals(HttpRequestMethod.POST)) {
+        connection.setDoOutput(true);
+        if (postParameter != null && postParameter.size() > 0) {
+          StringBuffer sBuffer = new StringBuffer();
+          for (Map.Entry<String, String> keyValue : postParameter.entrySet()) {
+            sBuffer.append(keyValue.getKey() + "=" + keyValue.getValue() + "&");
+          }
+          // 删除最后一个多余的&
+          sBuffer.delete(sBuffer.length() - 1, sBuffer.length());
+          OutputStream outputStream = connection.getOutputStream();
+          writer = new OutputStreamWriter(outputStream);
+          writer.write(sBuffer.toString());
+          writer.flush();
+        }
+      } else {
+        // 连接,也可以不用明文connect，使用上面的httpConn.getOutputStream()会自动connect，非post，必须显式连接(连接只能连接一次，重复连接会报错)。
+        connection.connect();
+      }
+    } catch (MalformedURLException e) {
+      e.printStackTrace();
+    } catch (IOException e) {
+      e.printStackTrace();
+    } finally {
+      if (connection != null) {
+        connection.disconnect();
+      }
+      if (writer != null) {
+        writer.close();
+      }
+    }
+    return connection;
+  }
+
+  /**
+   *
+   * 对gzip压缩二进制流进行解压
+   *
+   * @param inputStream
+   *        流
+   * @param charset
+   *        编码
+   * @return 返回值
+   * @throws IOException
+   *         异常
+   */
+  private static String gzipUnCompress(InputStream inputStream, String charset) throws IOException {
+
+    GZIPInputStream gzipInputStream = null;
+    ByteArrayOutputStream byteOutputStream = new ByteArrayOutputStream();
+    String result = null;
+    try {
+      gzipInputStream = new GZIPInputStream(inputStream);
+      byte[] bytes = new byte[512];
+      int count = 0;
+      while ((count = gzipInputStream.read(bytes)) > 0) {
+        byteOutputStream.write(bytes, 0, count);
+        count = 0;
+      }
+      result = byteOutputStream.toString(charset);
+    } catch (Exception e) {
+      e.printStackTrace();
+    } finally {
+      if (gzipInputStream != null) {
+        gzipInputStream.close();
+      }
+      if (byteOutputStream != null) {
+        byteOutputStream.close();
+      }
+    }
+    return result;
+  }
+
+  /**
+   *
+   * 对deflate压缩二进制流进行解压
+   *
+   * @param inputStream
+   *        流
+   * @param charset
+   *        编码
+   * @return 返回值
+   * @throws IOException
+   *         异常
+   */
+  private static String deflateUnCompress(InputStream inputStream, String charset)
+      throws IOException {
+    DeflaterInputStream deflateInputStream = null;
+    ByteArrayOutputStream byteOutputStream = new ByteArrayOutputStream();
+    String result = null;
+    try {
+      deflateInputStream = new DeflaterInputStream(inputStream);
+      byte[] bytes = new byte[512];
+      int count = 0;
+      while ((count = deflateInputStream.read(bytes)) > 0) {
+        byteOutputStream.write(bytes, 0, count);
+        count = 0;
+      }
+      result = byteOutputStream.toString(charset);
+    } catch (Exception e) {
+      e.printStackTrace();
+    } finally {
+      if (deflateInputStream != null) {
+        deflateInputStream.close();
+      }
+      if (byteOutputStream != null) {
+        byteOutputStream.close();
+      }
+    }
+    return result;
+  }
+}
